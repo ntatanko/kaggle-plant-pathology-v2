@@ -1,10 +1,13 @@
-FROM nvcr.io/nvidia/tensorflow:20.12-tf2-py3
+FROM nvcr.io/nvidia/tensorflow:21.03-tf2-py3
 
 # where external files are mapped to
 ARG APP_DIR="/app"
 
 # build directory
 WORKDIR /tmp
+
+# supress too many annying messages from tf
+ENV TF_CPP_MIN_LOG_LEVEL=3
 
 # for vs code, see https://aka.ms/vscode-docker-python
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -30,19 +33,19 @@ RUN npm install -g n && n lts
 RUN pip install --upgrade pip
 
 # jupyter lab
-RUN pip install jupyterlab==v3.0.5
+RUN pip install jupyterlab==v3.0.14
 
 # jupyterlab_code_formatter extension
-RUN jupyter labextension install @ryantam626/jupyterlab_code_formatter@v1.4.2 --no-build
-RUN pip install jupyterlab_code_formatter==v1.4.2
+RUN jupyter labextension install @ryantam626/jupyterlab_code_formatter@v1.4.10 --no-build
+RUN pip install jupyterlab_code_formatter==v1.4.10
 RUN jupyter server extension enable --py jupyterlab_code_formatter
 RUN pip install isort yapf black
 
 # plotly jl extension
 RUN pip install "ipywidgets>=7.5"
-RUN jupyter labextension install jupyterlab-plotly@4.14.3 --no-build
-RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@4.14.3 --no-build
-RUN pip install plotly==4.14.3
+RUN jupyter labextension install jupyterlab-plotly --no-build
+RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget --no-build
+RUN pip install plotly
 
 # lsp jl extension
 # https://github.com/krassowski/jupyterlab-lsp
@@ -63,48 +66,61 @@ RUN echo "cp -r /root/.jupyter ${APP_DIR}/docker/res/root/ && \
 RUN chmod +x /usr/bin/save-jupyter-config
 
 # startup commands
-ARG JUPYTER_TOKEN="142280ny"
+ARG JUPYTER_TOKEN="mytoken"
 RUN echo "tensorboard --logdir=${APP_DIR}/.tensorboard --bind_all &" >> /cmd
-RUN echo "jupyter lab --allow-root --ip=0.0.0.0 --no-browser --NotebookApp.token='${JUPYTER_TOKEN}' &" >> /cmd
+RUN echo "jupyter lab --allow-root --ip=0.0.0.0 --no-browser --NotebookApp.token='${JUPYTER_TOKEN}' --NotebookApp.allow_origin='*' &" >> /cmd
 RUN echo "sleep infinity" >> /cmd
 CMD ["sh", "/cmd"]
 
-# python packages
-
-RUN pip install numpy
-RUN pip install matplotlib
-RUN pip install pandas
-RUN pip install sklearn
-RUN pip install scipy
-RUN pip install seaborn
-
-# statsmodels
-RUN pip install statsmodels
-
-# texts
-RUN pip install pymystem3 nltk transformers
-RUN pip install tqdm
-
-# lightgbm
-RUN apt-get install -y --no-install-recommends cmake build-essential gcc g++ git
-RUN git clone --recursive --branch stable --depth 1 https://github.com/Microsoft/LightGBM
-RUN (cd LightGBM/python-package/ && python3 setup.py install)
-
-# pytorch
-RUN pip install --pre torch torchvision torchaudio -f https://download.pytorch.org/whl/nightly/cu110/torch_nightly.html
+# needed for keras model visualization
+RUN pip install pydot
+RUN apt-get install -y graphviz
 
 # kaggle cli
 ENV KAGGLE_CONFIG_DIR ${APP_DIR}
 RUN pip install kaggle
 
+# pre-approve github host
+RUN mkdir /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+# python packages
+
+#RUN pip install torch==1.8.1+cu111 torchvision==0.9.1+cu111 torchaudio==0.8.1 \
+#    -f https://download.pytorch.org/whl/torch_stable.html
+RUN pip install torch==1.7.1+cu110 torchvision==0.8.2+cu110 torchaudio==0.7.2 -f https://download.pytorch.org/whl/torch_stable.html
+
+
+RUN pip install pandas
+RUN pip install --upgrade numpy
+RUN pip install matplotlib
+RUN pip install seaborn
+RUN pip install sklearn
+RUN pip install scipy
+RUN pip install opencv-python
+RUN pip install albumentations
+RUN pip install tqdm
+RUN apt-get install -y libsndfile1
+RUN pip install tables
+RUN pip install tfa-nightly
+RUN pip install pillow
+# mimic kaggle directory layout
+RUN mkdir -pv /kaggle/input
+RUN ln -s ${APP_DIR}/_data/competition_data /kaggle/input/birdclef-2021
+RUN ln -s ${APP_DIR} /kaggle/input/bc21-code
+RUN ln -s ${APP_DIR}/_work/kaggle_models/ /kaggle/input/bc21-models
+RUN ln -s ${APP_DIR}/kaggle/ /kaggle/working
+ENV KAGGLE_KERNEL_RUN_TYPE=Interactive
+
+# needed for the proper random seed fix
+ENV PYTHONHASHSEED=777
+
+# tmp fix for https://github.com/jupyterlab/jupyterlab/issues/10228
+RUN jupyter server extension disable nbclassic
+
+# htop, atop - because it's good for you
+RUN apt install -y htop atop
+
 # copy external resources
 COPY docker/res /
-
-# cleanup
-# RUN rm -rf /var/lib/apt/lists/*
-# RUN rm -rf /tmp/*
-# RUN jupyter lab clean
-# RUN jlpm cache clean
-# RUN npm cache clean --force
 
 WORKDIR ${APP_DIR}
